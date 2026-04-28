@@ -185,3 +185,63 @@ def delete_match(match_id: int):
     cursor.close()
     conn.close()
     return {"status": "deleted"}
+
+@app.put("/api/teams/{team_id}/attach/player/{player_id}")
+def attach_player_to_team(team_id: int, player_id: int, join_date: str = "2024-01-01"):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT player_id FROM player WHERE player_id = %s", (player_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Player not found")
+        
+        cursor.execute("SELECT team_id FROM team WHERE team_id = %s", (team_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        cursor.execute(
+            "INSERT INTO player_team (player_id, team_id, join_date) VALUES (%s, %s, %s)",
+            (player_id, team_id, join_date)
+        )
+        conn.commit()
+        return {"status": "success", "message": "Player attached to team"}
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail="This player is already in this team on this date")
+    finally:
+        cursor.close()
+        conn.close()
+
+# Удалить запись о нахождении игрока в команде (Detach)
+@app.put("/api/teams/{team_id}/detach/player/{player_id}")
+def detach_player_from_team(team_id: int, player_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM player_team WHERE team_id = %s AND player_id = %s",
+        (team_id, player_id)
+    )
+    res = cursor.rowcount
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return {"status": "success", "deleted_rows": res}
+
+@app.get("/api/teams/{team_id}/players")
+def get_team_players(team_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    query = """
+        SELECT p.player_id, p.nickname, p.role, pt.join_date 
+        FROM player p
+        INNER JOIN player_team pt ON p.player_id = pt.player_id
+        WHERE pt.team_id = %s
+    """
+    cursor.execute(query, (team_id,))
+    result = cursor.fetchall()
+    res = []
+    for row in result:
+        res.append({"id": row[0], "nickname": row[1], "role": row[2], "joined": str(row[3])})
+    cursor.close()
+    conn.close()
+    return res
