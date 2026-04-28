@@ -7,7 +7,14 @@ import psycopg2
 
 app = FastAPI()
 
-# Схема данных для Команды (чтобы FastAPI понимал, какие поля мы присылаем)
+class MatchSchema(BaseModel):
+    team_id: int
+    match_code: str
+    stage: str
+    result_1: int = 0
+    result_2: int = 0
+    maps: Optional[str] = None
+
 class TeamSchema(BaseModel):
     title: str
     coach: Optional[str] = None
@@ -49,24 +56,28 @@ def create_team(team: TeamSchema):
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close()
-        conn.close()
+        conn.close() # <--- ГАРАНТИРОВАННОЕ ЗАКРЫТИЕ
 
 # 3. Обновить команду (UPDATE)
 @app.put("/api/teams/{team_id}")
 def update_team(team_id: int, team: TeamSchema):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        'UPDATE team SET title=%s, coach=%s, region=%s, foundation_date=%s WHERE team_id=%s',
-        (team.title, team.coach, team.region, team.foundation_date, team_id)
-    )
-    if cursor.rowcount == 0:
+    try:
+        cursor.execute(
+            'UPDATE team SET title=%s, coach=%s, region=%s, foundation_date=%s WHERE team_id=%s',
+            (team.title, team.coach, team.region, team.foundation_date, team_id)
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Team not found")
+        conn.commit()
+        return {"status": "updated"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
         conn.close()
-        raise HTTPException(status_code=404, detail="Team not found")
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return {"status": "updated"}
 
 # 4. Удалить команду (DELETE)
 @app.delete("/api/teams/{team_id}")
@@ -81,7 +92,96 @@ def delete_team(team_id: int):
         return {"status": "deleted"}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=400, detail="Cannot delete team (it might have related matches)")
+        raise HTTPException(status_code=400, detail="Error: possible related data")
     finally:
         cursor.close()
         conn.close()
+
+@app.get("/api/matches")
+def get_matches():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Используем INNER JOIN, чтобы достать название команды
+    query = """
+        SELECT m.match_id, m.match_code, m.stage, m.result_1, m.result_2, m.maps, 
+               t.team_id, t.title 
+        FROM match m
+        INNER JOIN team t ON m.team_id = t.team_id
+    """
+    cursor.execute(query)
+    result = cursor.fetchall()
+    
+    res = []
+    for row in result:
+        res.append({
+            "match_id": row[0],
+            "match_code": row[1],
+            "stage": row[2],
+            "score": f"{row[3]}:{row[4]}",
+            "maps": row[5],
+            "team": {
+                "id": row[6],
+                "name": row[7]
+            }
+        })
+    cursor.close()
+    conn.close()
+    return JSONResponse(content=jsonable_encoder(res))
+
+@app.post("/api/matches")
+def create_match(match: MatchSchema):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Проверяем, существует ли такая команда
+        cursor.execute("SELECT team_id FROM team WHERE team_id = %s", (match.team_id,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Team not found. Cannot create match.")
+            
+        cursor.execute(
+            'INSERT INTO match (team_id, match_code, stage, result_1, result_2, maps) VALUES (%s, %s, %s, %s, %s, %s) RETURNING match_id',
+            (match.team_id, match.match_code, match.stage, match.result_1, match.result_2, match.maps)
+        )
+        new_id = cursor.fetchone()[0]
+        conn.commit()
+        return {"status": "success", "match_id": new_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.put("/api/matches/{match_id}")
+def update_match(match_id: int, match: MatchSchema):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT team_id FROM team WHERE team_id = %s", (match.team_id,))
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        cursor.execute(
+            'UPDATE match SET team_id=%s, match_code=%s, stage=%s, result_1=%s, result_2=%s, maps=%s WHERE match_id=%s',
+            (match.team_id, match.match_code, match.stage, match.result_1, match.result_2, match.maps, match_id)
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Match not found")
+        conn.commit()
+        return {"status": "updated"}
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.delete("/api/matches/{match_id}")
+def delete_match(match_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM match WHERE match_id = %s', (match_id,))
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Match not found")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return {"status": "deleted"}
