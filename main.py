@@ -7,7 +7,7 @@ import psycopg2
 
 app = FastAPI()
 
-class MatchSchema(BaseModel):
+class Match(BaseModel):
     team_id: int
     match_code: str
     stage: str
@@ -15,13 +15,13 @@ class MatchSchema(BaseModel):
     result_2: int = 0
     maps: Optional[str] = None
 
-class TeamSchema(BaseModel):
+class Team(BaseModel):
     title: str
     coach: Optional[str] = None
     region: Optional[str] = None
     foundation_date: Optional[str] = None 
 
-class PlayerSchema(BaseModel):
+class Player(BaseModel):
     nickname: str
     full_name: Optional[str] = None
     role: Optional[str] = None
