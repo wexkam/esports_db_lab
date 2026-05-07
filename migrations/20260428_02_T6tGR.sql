@@ -25,3 +25,4 @@ INSERT INTO player_team (player_id, team_id, join_date, departure_date) VALUES
 (5, 4, '2020-10-28', NULL), (6, 2, '2022-01-03', NULL),
 (7, 3, '2023-12-17', NULL), (8, 1, '2020-12-20', NULL),
 (9, 7, '2023-04-15', '2024-01-01'), (10, 2, '2021-01-01', '2023-12-01');
+

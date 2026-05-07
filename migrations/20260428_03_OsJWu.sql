@@ -26,23 +26,18 @@ DECLARE
     max_sq NUMERIC;
     sum_sq NUMERIC;
 BEGIN
-    -- Сортируем стороны по возрастанию
     SELECT array_agg(x ORDER BY x) INTO sides FROM unnest(ARRAY[a, b, c]) AS x;
-
-    -- Проверка на существование
     IF (sides[1] + sides[2]) <= sides[3] THEN 
         result_text := 'Не треугольник';
         RETURN;
     END IF;
-    
-    -- Тип по сторонам
+
     result_text := CASE 
         WHEN sides[1] = sides[2] AND sides[2] = sides[3] THEN 'Равносторонний'
         WHEN sides[1] = sides[2] OR sides[2] = sides[3] OR sides[1] = sides[3] THEN 'Равнобедренный'
         ELSE 'Разносторонний'
     END;
 
-    -- Тип по углам (Пифагор)
     max_sq := sides[3]^2;
     sum_sq := sides[1]^2 + sides[2]^2;
 
